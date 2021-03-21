@@ -1,31 +1,57 @@
 package render
 
 import (
+	"bytes"
 	"fmt"
-	"net/http"
+	"github.com/ahojo/hello-world-web/pkg/Models"
+	"github.com/ahojo/hello-world-web/pkg/config"
 	"html/template"
+	"log"
+	"net/http"
 	"path/filepath"
 )
 
 var functions = template.FuncMap{}
 
-func RenderTemplate(w http.ResponseWriter, tmpl string) {
+var app *config.AppConfig
 
-	_, err := RenderTemplateTest(w)
-	if err != nil {
-		fmt.Println("Error getting template cache ", err)
-	}
-	parsedTemplate, _ := template.ParseFiles("./templates/" + tmpl)
-	err = parsedTemplate.ExecuteTemplate(w, tmpl, nil)
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
+// NewTemplates sets the config for the template package.
+func NewTemplates(a *config.AppConfig) {
+	app = a
 }
 
+func AddDefaultData(td *Models.TemplateData) *Models.TemplateData {
+	return td
+}
+func RenderTemplate(w http.ResponseWriter, tmpl string, data *Models.TemplateData) {
+	var tc map[string]*template.Template
+	// if UseCache is true, we are in prod, and don't want to read from disk every time
+	// otherwise, we want to be able to see changes to our html.
+	if app.UseCache {
+		// get the template cache, from the app config.
+		tc = app.TemplateCache
+	} else {
+		tc, _ = CreateTemplateCache()
+	}
 
-func RenderTemplateTest(w http.ResponseWriter) (map[string]*template.Template, error) {
+	t, ok := tc[tmpl]
+	if !ok {
+		log.Fatalln("Could not get template from template cache")
+	}
+
+	buf := new(bytes.Buffer)
+
+	data = AddDefaultData(data)
+	_ = t.Execute(buf, data)
+
+	_, err := buf.WriteTo(w)
+	if err != nil {
+		fmt.Println("Error writing template to browser")
+	}
+}
+
+// CreateTemplateCache creates a template cache as a map.
+func CreateTemplateCache() (map[string]*template.Template, error) {
 	myCache := map[string]*template.Template{}
 
 	pages, err := filepath.Glob("./templates/*.page.gohtml")
@@ -35,7 +61,7 @@ func RenderTemplateTest(w http.ResponseWriter) (map[string]*template.Template, e
 
 	for _, page := range pages {
 		name := filepath.Base(page)
-		fmt.Println("Page is currently ", page)
+
 		ts, err := template.New(name).Funcs(functions).ParseFiles(page)
 		if err != nil {
 			return myCache, err
